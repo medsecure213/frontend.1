@@ -1,87 +1,105 @@
-import { supabase } from '../lib/supabaseClient';
 import { User, UserRole, LoginCredentials, CreateUserData } from '../types/user';
-import bcrypt from 'bcryptjs';
 
 class AuthService {
   private currentUser: User | null = null;
+  private users: User[] = [];
+  private roles: UserRole[] = [];
+
+  constructor() {
+    this.initializeDefaultData();
+  }
+
+  private initializeDefaultData() {
+    // Initialize default roles
+    this.roles = [
+      {
+        id: 'security_admin',
+        name: 'Security Administrator',
+        description: 'Full system administration access',
+        level: 1,
+        permissions: this.getRolePermissions('security_admin')
+      },
+      {
+        id: 'security_manager',
+        name: 'Security Manager',
+        description: 'Manage security operations and team',
+        level: 2,
+        permissions: this.getRolePermissions('security_manager')
+      },
+      {
+        id: 'security_analyst',
+        name: 'Security Analyst',
+        description: 'Analyze threats and manage incidents',
+        level: 3,
+        permissions: this.getRolePermissions('security_analyst')
+      },
+      {
+        id: 'security_viewer',
+        name: 'Security Viewer',
+        description: 'Read-only access to security data',
+        level: 4,
+        permissions: this.getRolePermissions('security_viewer')
+      }
+    ];
+
+    // Initialize default admin user
+    const adminRole = this.roles.find(r => r.id === 'security_admin')!;
+    const defaultAdmin: User = {
+      id: 'admin-001',
+      username: 'admin',
+      email: 'admin@company.com',
+      firstName: 'System',
+      lastName: 'Administrator',
+      role: adminRole,
+      department: 'Security Operations',
+      isActive: true,
+      createdAt: new Date(),
+      createdBy: 'system',
+      permissions: adminRole.permissions
+    };
+
+    this.users = [defaultAdmin];
+    
+    // Load users from localStorage if available
+    const storedUsers = localStorage.getItem('users');
+    if (storedUsers) {
+      try {
+        const parsedUsers = JSON.parse(storedUsers);
+        this.users = parsedUsers.map((user: any) => ({
+          ...user,
+          createdAt: new Date(user.createdAt),
+          lastLogin: user.lastLogin ? new Date(user.lastLogin) : undefined
+        }));
+      } catch (error) {
+        console.warn('Failed to load users from localStorage:', error);
+      }
+    }
+  }
 
   async login(credentials: LoginCredentials): Promise<User> {
-    // Query the users table with proper joins for role information
-    const { data, error } = await supabase
-      .from('users')
-      .select(`
-        id,
-        username,
-        email,
-        full_name,
-        role,
-        role_level,
-        is_active,
-        last_login,
-        created_at,
-        updated_at,
-        createdBy
-      `)
-      .eq('username', credentials.username)
-      .eq('is_active', true)
-      .single();
-
-    if (error || !data) {
+    // Find user by username
+    const user = this.users.find(u => u.username === credentials.username && u.isActive);
+    
+    if (!user) {
       throw new Error('Invalid username or password');
     }
 
-    // In a real implementation, verify password hash
-    // For demo purposes, we'll accept any password
+    // For demo purposes, accept 'password' or 'admin' as valid passwords
+    if (credentials.password !== 'password' && credentials.password !== 'admin') {
+      throw new Error('Invalid username or password');
+    }
     
     // Update last login
-    await supabase
-      .from('users')
-      .update({ last_login: new Date().toISOString() })
-      .eq('id', data.id);
+    user.lastLogin = new Date();
+    this.saveUsers();
 
-    // Transform database user to application user format
-    this.currentUser = this.transformDbUserToAppUser(data);
+    this.currentUser = user;
     localStorage.setItem('currentUser', JSON.stringify(this.currentUser));
     return this.currentUser;
   }
 
-  private transformDbUserToAppUser(dbUser: any): User {
-    const [firstName, lastName] = dbUser.full_name.split(' ');
-    return {
-      id: dbUser.id,
-      username: dbUser.username,
-      email: dbUser.email,
-      firstName: firstName || '',
-      lastName: lastName || '',
-      role: {
-        id: dbUser.role,
-        name: dbUser.role.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
-        description: this.getRoleDescription(dbUser.role),
-        level: dbUser.role_level,
-        permissions: this.getRolePermissions(dbUser.role)
-      },
-      department: 'Security Operations', // Default department
-      isActive: dbUser.is_active,
-      lastLogin: dbUser.last_login ? new Date(dbUser.last_login) : undefined,
-      createdAt: new Date(dbUser.created_at),
-      createdBy: dbUser.createdBy || '',
-      permissions: this.getRolePermissions(dbUser.role)
-    };
-  }
-
-  private getRoleDescription(role: string): string {
-    switch (role) {
-      case 'security_admin':
-        return 'Full system administration access';
-      case 'security_manager':
-        return 'Manage security operations and team';
-      case 'security_analyst':
-        return 'Analyze threats and manage incidents';
-      case 'security_viewer':
-        return 'Read-only access to security data';
-      default:
-        return 'Standard user access';
-    }
+  private saveUsers() {
+    localStorage.setItem('users', JSON.stringify(this.users));
   }
 
   private getRolePermissions(role: string) {
@@ -113,6 +131,7 @@ class AuthService {
         return basePermissions;
     }
   }
+
   async logout(): Promise<void> {
     this.currentUser = null;
     localStorage.removeItem('currentUser');
@@ -135,214 +154,71 @@ class AuthService {
 
   async createUser(userData: CreateUserData, createdBy: string): Promise<User> {
     // Check for existing username or email
-    const { data: existing, error: fetchError } = await supabase
-      .from('users')
-      .select('id')
-      .or(`username.eq.${userData.username},email.eq.${userData.email}`);
-
-    if (fetchError) throw fetchError;
-    if (existing && existing.length > 0) {
+    const existing = this.users.find(u => 
+      u.username === userData.username || u.email === userData.email
+    );
+    
+    if (existing) {
       throw new Error('Username or email already exists');
     }
 
-    // Hash password (in production, use proper password hashing)
-    // For demo purposes, we'll store a simple hash
-    const passwordHash = await this.hashPassword(userData.password);
-
     // Get role information
-    const roleInfo = this.getRoleInfo(userData.roleId);
+    const role = this.roles.find(r => r.id === userData.roleId);
+    if (!role) {
+      throw new Error('Invalid role selected');
+    }
 
-    // Insert new user into database
-    const { data, error } = await supabase
-      .from('users')
-      .insert([
-        {
-          username: userData.username,
-          password_hash: passwordHash,
-          email: userData.email,
-          full_name: `${userData.firstName} ${userData.lastName}`,
-          role: userData.roleId,
-          role_level: roleInfo.level,
-          createdBy,
-          is_active: true,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString()
-        }
-      ])
-      .select()
-      .single();
-
-    if (error) throw error;
-    
-    // Transform and return the created user
-    return this.transformDbUserToAppUser(data);
-  }
-
-  private async hashPassword(password: string): Promise<string> {
-    // In production, use bcrypt or similar
-    // For demo purposes, we'll use a simple hash
-    return btoa(password); // Base64 encoding (NOT secure for production)
-  }
-
-  private getRoleInfo(roleId: string) {
-    const roles = {
-      'security_admin': { level: 1, name: 'Security Administrator' },
-      'security_manager': { level: 2, name: 'Security Manager' },
-      'security_analyst': { level: 3, name: 'Security Analyst' },
-      'security_viewer': { level: 4, name: 'Security Viewer' }
+    // Create new user
+    const newUser: User = {
+      id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      username: userData.username,
+      email: userData.email,
+      firstName: userData.firstName,
+      lastName: userData.lastName,
+      role: role,
+      department: userData.department,
+      isActive: true,
+      createdAt: new Date(),
+      createdBy: createdBy,
+      permissions: role.permissions
     };
-    return roles[roleId] || { level: 4, name: 'Security Viewer' };
+
+    this.users.push(newUser);
+    this.saveUsers();
+    
+    return newUser;
   }
 
   async updateUser(userId: string, updates: Partial<User>): Promise<User> {
-    // Transform app user format to database format
-    const dbUpdates: any = {
-      updated_at: new Date().toISOString()
-    };
-
-    if (updates.role) {
-      dbUpdates.role = updates.role.id || updates.role.name.toLowerCase().replace(' ', '_');
-      dbUpdates.role_level = updates.role.level;
+    const userIndex = this.users.findIndex(u => u.id === userId);
+    if (userIndex === -1) {
+      throw new Error('User not found');
     }
 
-    if (updates.firstName || updates.lastName) {
-      const currentUser = await this.getUserById(userId);
-      const firstName = updates.firstName || currentUser?.firstName || '';
-      const lastName = updates.lastName || currentUser?.lastName || '';
-      dbUpdates.full_name = `${firstName} ${lastName}`;
-    }
-
-    if (updates.email) dbUpdates.email = updates.email;
-    if (updates.isActive !== undefined) dbUpdates.is_active = updates.isActive;
-
-    const { data, error } = await supabase
-      .from('users')
-      .update(dbUpdates)
-      .eq('id', userId)
-      .select()
-      .single();
-
-    if (error) throw error;
-    return this.transformDbUserToAppUser(data);
-  }
-
-  private async getUserById(userId: string): Promise<User | null> {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single();
-
-    if (error || !data) return null;
-    return this.transformDbUserToAppUser(data);
+    // Update user
+    this.users[userIndex] = { ...this.users[userIndex], ...updates };
+    this.saveUsers();
+    
+    return this.users[userIndex];
   }
 
   async deleteUser(userId: string): Promise<void> {
+    const userIndex = this.users.findIndex(u => u.id === userId);
+    if (userIndex === -1) {
+      throw new Error('User not found');
+    }
+    
     // Soft delete - set is_active to false
-    const { error } = await supabase
-      .from('users')
-      .update({ 
-        is_active: false,
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', userId);
-
-    if (error) throw error;
+    this.users[userIndex].isActive = false;
+    this.saveUsers();
   }
 
   async getAllUsers(): Promise<User[]> {
-    try {
-      const { data, error } = await supabase
-        .from('users')
-        .select(`
-          id,
-          username,
-          email,
-          full_name,
-          role,
-          role_level,
-          is_active,
-          last_login,
-          created_at,
-          updated_at,
-          createdby
-        `)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('Database error:', error);
-        return [];
-      }
-
-      if (!data) return [];
-
-      // Filter out users with invalid UUID data and transform valid ones
-      return data
-        .filter(user => this.isValidUserData(user))
-        .map(user => this.transformDbUserToAppUser(user));
-    } catch (error) {
-      console.error('Error fetching users:', error);
-      return [];
-    }
-  }
-
-  private isValidUserData(user: any): boolean {
-    // Check if required fields exist and have valid values
-    if (!user.id || !user.username || !user.email) {
-      return false;
-    }
-
-    // Check if UUID fields have valid format (basic validation)
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    
-    // Validate ID field (should be UUID)
-    if (!uuidRegex.test(user.id)) {
-      console.warn(`Invalid UUID for user ID: ${user.id}`);
-      return false;
-    }
-
-    // Validate createdby field if it exists and is not null
-    if (user.createdby && user.createdby !== null && !uuidRegex.test(user.createdby)) {
-      console.warn(`Invalid UUID for createdby: ${user.createdby}`);
-      return false;
-    }
-
-    return true;
+    return this.users.filter(u => u.isActive);
   }
 
   async getAllRoles(): Promise<UserRole[]> {
-    // Return predefined roles since they're not stored in a separate table
-    return [
-      {
-        id: 'security_admin',
-        name: 'Security Administrator',
-        description: 'Full system administration access',
-        level: 1,
-        permissions: this.getRolePermissions('security_admin')
-      },
-      {
-        id: 'security_manager',
-        name: 'Security Manager',
-        description: 'Manage security operations and team',
-        level: 2,
-        permissions: this.getRolePermissions('security_manager')
-      },
-      {
-        id: 'security_analyst',
-        name: 'Security Analyst',
-        description: 'Analyze threats and manage incidents',
-        level: 3,
-        permissions: this.getRolePermissions('security_analyst')
-      },
-      {
-        id: 'security_viewer',
-        name: 'Security Viewer',
-        description: 'Read-only access to security data',
-        level: 4,
-        permissions: this.getRolePermissions('security_viewer')
-      }
-    ];
+    return this.roles;
   }
 
   hasPermission(user: User, resource: string, action: string): boolean {

@@ -3,13 +3,11 @@ import { Dashboard } from './components/Dashboard';
 import { LoginPage } from './components/LoginPage';
 import { authService } from './services/authService';
 import { User } from './types/user';
-import { io } from 'socket.io-client';
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [threats, setThreats] = useState<any[]>([]);
 
   useEffect(() => {
     // Check if user is already logged in
@@ -19,26 +17,6 @@ function App() {
       setIsAuthenticated(true);
     }
     setIsLoading(false);
-
-    // Connect to backend via WebSocket
-    const socket = io('http://localhost:5173'); // Change URL if backend is hosted elsewhere
-
-    socket.on('connect', () => {
-      console.log('Connected to threat detection backend');
-    });
-
-    socket.on('threat_detected', (data) => {
-      console.log('Threat detected:', data);
-      setThreats((prev) => [data, ...prev]); // Add newest threats at the top
-    });
-
-    socket.on('disconnect', () => {
-      console.warn('Disconnected from backend');
-    });
-
-    return () => {
-      socket.disconnect();
-    };
   }, []);
 
   const handleLogin = (loggedInUser: User) => {
@@ -67,7 +45,7 @@ function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
-  return <Dashboard user={user} threats={threats} onLogout={handleLogout} />;
+  return <Dashboard user={user} onLogout={handleLogout} />;
 }
 
 export default App;

@@ -15,10 +15,9 @@ import { User } from '../types/user';
 interface DashboardProps {
   user?: User | null;
   onLogout?: () => void;
-}
 
 export function Dashboard({ user, onLogout }: DashboardProps) {
-  const { 
+export function Dashboard({ user, onLogout }: DashboardProps) {
     incidents, 
     networkTraffic, 
     systemStatus, 
