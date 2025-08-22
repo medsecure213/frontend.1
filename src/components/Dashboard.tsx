@@ -2,7 +2,7 @@ import React from 'react';
 import { User } from '../types/user';
 import { AlertPanel } from './AlertPanel';
 import { IncidentList } from './IncidentList';
-import NetworkMonitor from './NetworkMonitor';
+import { NetworkMonitor } from './NetworkMonitor';
 import SystemStatus from './SystemStatus';
 import ThreatDetectionPanel from './ThreatDetectionPanel';
 import ThreatMap from './ThreatMap';
