@@ -13,8 +13,6 @@ interface DashboardProps {
   onLogout: () => void;
 }
 
-export default Dashboard;
-
 const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   return (
     <div className="min-h-screen bg-gray-100">
