@@ -3,15 +3,17 @@ import { User } from '../types/user';
 import { AlertPanel } from './AlertPanel';
 import { IncidentList } from './IncidentList';
 import { NetworkMonitor } from './NetworkMonitor';
-import SystemStatus from './SystemStatus';
-import ThreatDetectionPanel from './ThreatDetectionPanel';
-import ThreatMap from './ThreatMap';
-import SystemAlertPanel from './SystemAlertPanel';
+import { SystemStatus } from './SystemStatus';
+import { ThreatDetectionPanel } from './ThreatDetectionPanel';
+import { ThreatMap } from './ThreatMap';
+import { SystemAlertPanel } from './SystemAlertPanel';
 
 interface DashboardProps {
   user: User;
   onLogout: () => void;
 }
+
+export default Dashboard;
 
 const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   return (
